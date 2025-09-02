@@ -1,0 +1,9 @@
+[package]
+name = "ouka"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+evdev = "0.10"
+uinput = "0.4"
+mlua = { version = "0.9", features = ["luajit"] }
