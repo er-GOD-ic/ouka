@@ -3,6 +3,8 @@ mod device;
 
 fn main() {
     let lua = lua_api::load_lua();
+    let table = lua_api::RemapTable::new();
+    lua_api::init_fn_bind(&lua, table)
 
     // This is the name of global variable. This have to set in your lua file.
     // You can change this to whatever you want to call it. For example; Mouse, Numpad or Keyboard.
