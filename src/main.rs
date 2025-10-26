@@ -1,16 +1,28 @@
-mod lua_api;
+use dotenv::dotenv;
+use std::env;
+use std::process;
+
 mod device;
+mod lua_api;
 
 fn main() {
-    let lua = lua_api::load_lua();
-    let table = lua_api::RemapTable::new();
-    lua_api::init_fn_bind(&lua, table)
+    dotenv().ok();
+
+    let ouka_conf = env::var("OUKA_CONF").expect("Faild to load env var");
+    print!("OUKA_CONF: {}\n", &ouka_conf);
+    let lua = lua_api::load_lua(&ouka_conf);
 
     // This is the name of global variable. This have to set in your lua file.
-    // You can change this to whatever you want to call it. For example; Mouse, Numpad or Keyboard.
     let key = "Device";
 
-    let devices = device::find_device_by_name(&lua_api::device_name(&lua, key));
-    println!("=== device list matching ===");
+    print!("Device:{}\n",&lua_api::get_device_name(&lua, key));
+
+    // user needs to 
+    let devices = device::find_device_by_name(&lua_api::get_device_name(&lua, key));
+    if devices.is_none() {
+        eprintln!("The target device cannot be resolved.");
+        process::exit(1);
+    }
+    println!("=== Target device ===");
     device::print_device_list(devices.as_deref().unwrap_or(&[]));
 }
