@@ -1,7 +1,6 @@
 use dotenv::dotenv;
 use std::env;
 use std::process;
-
 mod device;
 mod lua_api;
 
@@ -25,4 +24,6 @@ fn main() {
     }
     println!("=== Target device ===");
     device::print_device_list(devices.as_deref().unwrap_or(&[]));
+
+    device::listen_device_list(devices.as_deref().unwrap_or(&[]));
 }
