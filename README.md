@@ -49,15 +49,24 @@ Linux向け 高度キーリマップ・マクロソフト
 
 ```lua
 -- AをBにリマップ
-bind("a", "b")
+map("a", "b")
 
 -- Ctrl+Qで特定コマンド
-bind({"ctrl", "q"}, function() os.execute("killall firefox") end)
+--[[
+修飾キー
+Ctrl: C-
+Shift: S-
+Alt: A-
+]]
+map("C-q", function() os.execute("killall firefox") end)
 
--- アプリごとにマッピング
-when_app("firefox", function()
-    bind("f1", "ctrl+t")
-end)
+-- キー上昇時: ^をつける
+map("^a", "b") -- aキー上昇をbキーにリマップ
+map("^C-a", "b") -- Ctrl上昇＋aキー押下状態
+
+-- 入力がないことを要求(単体キーでは動作不能): !をつける
+map("C-b!a") -- Ctrl+b+aキーの入力がない
+map("^Caps-!Any") -- Caps上昇+他の入力がない
 ```
 
 ## 今後の展望
