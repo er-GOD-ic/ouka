@@ -8,6 +8,9 @@ use std::sync::{
 };
 use std::time::Instant;
 
+#[path = "../device.rs"]
+mod device;
+
 // load init.lua from path
 pub fn load_lua(lua: &Lua, path: &Path) {
     let config_path = path.join("config.lua");
@@ -71,8 +74,14 @@ pub fn register_api(lua: &Lua, store: MapStore, id_gen: Arc<AtomicU64>) -> LuaRe
         ouka.set("margeTable", marge_table)?;
     }
 
-    // keymap
-    {}
+    // get device by name
+    {
+        let get_device_by_name = lua.create_function(|lua, str: mlua::String| {
+            let out = lua.create_table()?;
+            device::find_device_by_name(str.to_str()?);
+        })?;
+        ouka.set("getDeviceByName", get_device_by_name)?;
+    }
 
     // map(pattern, func, opts)
     {

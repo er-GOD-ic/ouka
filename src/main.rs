@@ -15,6 +15,10 @@ fn main() {
 
     // init lua api
     let lua = Lua::new();
+
+    // for Debugging. Resolve the require path
+    lua.load(r#"package.path = package.path .. ';./lua/?.lua;./lua/?/init.lua'"#).exec().unwrap();
+
     let store: lua_api::api::MapStore = Arc::new(Mutex::new(HashMap::new()));
     let id_gen = Arc::new(AtomicU64::new(1));
     lua_api::api::register_api(&lua, store.clone(), id_gen).unwrap();
