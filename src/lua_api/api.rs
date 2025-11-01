@@ -1,4 +1,4 @@
-use mlua::{Function, Lua, RegistryKey, Result as LuaResult, Table};
+use mlua::{Error, Function, Lua, RegistryKey, Result as LuaResult, Table, Value, Variadic};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -9,20 +9,37 @@ use std::sync::{
 use std::time::Instant;
 
 // load init.lua from path
-pub fn load_lua(lua: &Lua, path: &str) {
-    let config_path = Path::new(path).join("init.lua");
-    let code = fs::read_to_string(&config_path).expect("init.luaが読み込めません");
+pub fn load_lua(lua: &Lua, path: &Path) {
+    let config_path = path.join("config.lua");
+    let code = fs::read_to_string(&config_path).expect("config.luaが読み込めません");
     lua.load(&code)
         .exec()
-        .expect("init.luaのロード時にエラーが発生しました");
+        .expect("config.luaのロード時にエラーが発生しました");
 }
 
-// get global var that define device to grab
+// get global variable that define device to grab
 pub fn get_device_name(lua: &Lua, key: &str) -> String {
     match lua.globals().get::<_, String>(key) {
         Ok(name) => name,
         Err(e) => panic!("Luaのグローバル変数'{}'が存在しません: {}", key, e),
     }
+}
+
+fn table_to_map_checked<'lua>(table: Table<'lua>) -> mlua::Result<HashMap<String, u16>> {
+    // より安全な方法：一度 i64 等で受け取ってから u16 の範囲チェックを行う
+    let mut map = HashMap::new();
+    for pair in table.pairs::<String, i64>() {
+        let (k, v) = pair?;
+        if !(0..=u16::MAX as i64).contains(&v) {
+            return Err(Error::FromLuaConversionError {
+                from: "integer",
+                to: "u16",
+                message: Some(format!("value {} out of range for u16 at key '{}'", v, k)),
+            });
+        }
+        map.insert(k, v as u16);
+    }
+    Ok(map)
 }
 
 pub struct Mapping {
@@ -37,6 +54,26 @@ pub type MapStore = Arc<Mutex<HashMap<u64, Mapping>>>;
 
 // functions
 pub fn register_api(lua: &Lua, store: MapStore, id_gen: Arc<AtomicU64>) -> LuaResult<()> {
+    let ouka = lua.create_table()?;
+
+    // define map
+    {
+        let marge_table = lua.create_function(|lua, tables: Variadic<Table>| {
+            let out = lua.create_table()?;
+            for table in tables {
+                for pair in table.pairs::<Value, Value>() {
+                    let (k, v) = pair?;
+                    out.set(k, v)?;
+                }
+            }
+            Ok(out)
+        })?;
+        ouka.set("margeTable", marge_table)?;
+    }
+
+    // keymap
+    {}
+
     // map(pattern, func, opts)
     {
         let store = store.clone();
@@ -67,7 +104,9 @@ pub fn register_api(lua: &Lua, store: MapStore, id_gen: Arc<AtomicU64>) -> LuaRe
                 Ok(id)
             },
         )?;
-        lua.globals().set("map", map_fn)?;
+        ouka.set("map", map_fn)?;
     }
+
+    lua.globals().set("ouka", ouka)?;
     Ok(())
 }

@@ -2,6 +2,7 @@ use dotenv::dotenv;
 use mlua::Lua;
 use std::collections::HashMap;
 use std::env;
+use std::path::Path;
 use std::process;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
@@ -17,7 +18,7 @@ fn main() {
     let store: lua_api::api::MapStore = Arc::new(Mutex::new(HashMap::new()));
     let id_gen = Arc::new(AtomicU64::new(1));
     lua_api::api::register_api(&lua, store.clone(), id_gen).unwrap();
-    lua_api::api::load_lua(&lua, &env::var("OUKA_CONF").expect("Faild to load env var: OUKA_CONF"));
+    lua_api::api::load_lua(&lua, Path::new(&env::var("OUKA_CONF").expect("Faild to load env var: OUKA_CONF")));
 
     let key = "Device"; // This is the name of global variable. This have to set in your lua file.
 

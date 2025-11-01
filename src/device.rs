@@ -122,7 +122,7 @@ fn listen(device: &DeviceHandler) -> thread::JoinHandle<()> {
             match device.fetch_events() {
                 Ok(events) => events
                     .into_iter()
-                    .for_each(|ev| println!("event: {:?}", ev)),
+                    .for_each(|ev| println!("event: {:?} code: {}", ev, ev.code())),
                 Err(e) => {
                     eprintln!("error reading {}: {}", path.display(), e);
                 }

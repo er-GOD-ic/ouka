@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 itertools = "0.13"
+bitflags = "2"
 evdev = "0.12"
 dotenv = "0.15"
 uinput = "0.1.3"
