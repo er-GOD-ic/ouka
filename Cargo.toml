@@ -1,6 +1,3 @@
-[workspace]
-members = ["lua_api", "ouka"]
-
 [package]
 name = "ouka"
 version = "0.1.0"

@@ -2,7 +2,7 @@ local base = require('keycode.base')
 local alias = require('keycode.alias')
 
 local keychron = ouka.getDeviceByName("keychron")
-keychron.keycode = ouka.margeTable(base, alias)
+keychron.keycode = ouka.margeTables(base, alias)
 
 --[[
 keychron.map("abc", function()

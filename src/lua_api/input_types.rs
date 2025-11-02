@@ -1,5 +1,4 @@
 use bitflags::bitflags;
-use std::collections::BTreeSet;
 
 pub type KeyCode = u16;
 pub type ModMask = u8;
@@ -30,14 +29,15 @@ pub enum State {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Hotkey {
+struct Hotkey {
     pub state: State,
     pub key_code: KeyCode,
     pub mods: ModMask,
 }
 
-pub struct Chord {
-    pub keys: BTreeSet<Hotkey>,
+pub enum Token {
+    Hotkey(Hotkey),
+    Chord { state: State, keys: Vec<Hotkey> },
 }
 
 /*

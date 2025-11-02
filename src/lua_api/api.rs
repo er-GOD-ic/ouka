@@ -1,15 +1,11 @@
-use mlua::{Error, Function, Lua, RegistryKey, Result as LuaResult, Table, Value, Variadic};
+use crate::process;
+use mlua::{Function, Lua, RegistryKey, Result, Table, Value, Variadic, UserDataMethods, UserData};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicU64, Ordering},
-};
-use std::time::Instant;
 
-#[path = "../device.rs"]
-mod device;
+use crate::device;
+use crate::lua_api::input_types;
 
 // load init.lua from path
 pub fn load_lua(lua: &Lua, path: &Path) {
@@ -20,100 +16,80 @@ pub fn load_lua(lua: &Lua, path: &Path) {
         .expect("config.luaのロード時にエラーが発生しました");
 }
 
-// get global variable that define device to grab
-pub fn get_device_name(lua: &Lua, key: &str) -> String {
-    match lua.globals().get::<_, String>(key) {
-        Ok(name) => name,
-        Err(e) => panic!("Luaのグローバル変数'{}'が存在しません: {}", key, e),
-    }
-}
-
-fn table_to_map_checked<'lua>(table: Table<'lua>) -> mlua::Result<HashMap<String, u16>> {
-    // より安全な方法：一度 i64 等で受け取ってから u16 の範囲チェックを行う
-    let mut map = HashMap::new();
-    for pair in table.pairs::<String, i64>() {
+fn merge_into(lua: &Lua, dest: &Table, src: &Table) -> Result<()> {
+    for pair in src.clone().pairs::<Value, Value>() {
         let (k, v) = pair?;
-        if !(0..=u16::MAX as i64).contains(&v) {
-            return Err(Error::FromLuaConversionError {
-                from: "integer",
-                to: "u16",
-                message: Some(format!("value {} out of range for u16 at key '{}'", v, k)),
-            });
+        match v {
+            Value::Table(v_table) => {
+                // dest に既にテーブルがあるか確認
+                match dest.get::<_, Value>(k.clone())? {
+                    Value::Table(dest_sub) => {
+                        // 両方テーブル -> 再帰マージ
+                        merge_into(lua, &dest_sub, &v_table)?;
+                    }
+                    _ => {
+                        // dest にテーブルが無い -> 新しいテーブルを作ってコピー（元の src を変更しない）
+                        let new_table = lua.create_table()?;
+                        merge_into(lua, &new_table, &v_table)?;
+                        dest.set(k, new_table)?;
+                    }
+                }
+            }
+            other => {
+                // テーブルでない値は上書き
+                dest.set(k, other)?;
+            }
         }
-        map.insert(k, v as u16);
     }
-    Ok(map)
+    Ok(())
 }
 
-pub struct Mapping {
-    pub id: u64,
-    pub pattern: String,
-    pub handler: RegistryKey,
-    pub metadata: Option<String>,
-    pub created: Instant,
+struct DeviceData {
+    name: String,
+    keymap: HashMap<input_types::Token, RegistryKey>,
 }
 
-pub type MapStore = Arc<Mutex<HashMap<u64, Mapping>>>;
+impl UserData for DeviceData {
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_method("map", |lua, this, (key, func): (mlua::String, Function)| {
+            // FunctionをRegistryに保存
+            let key_ref = lua.create_registry_value(func)?;
+            Ok(())
+        });
+    }
+}
 
 // functions
-pub fn register_api(lua: &Lua, store: MapStore, id_gen: Arc<AtomicU64>) -> LuaResult<()> {
+pub fn register_api(lua: &Lua) -> Result<()> {
     let ouka = lua.create_table()?;
 
     // define map
     {
-        let marge_table = lua.create_function(|lua, tables: Variadic<Table>| {
+        let marge_tables = lua.create_function(|lua, tables: Variadic<Table>| {
             let out = lua.create_table()?;
             for table in tables {
-                for pair in table.pairs::<Value, Value>() {
-                    let (k, v) = pair?;
-                    out.set(k, v)?;
-                }
+                merge_into(lua, &out, &table)?;
             }
             Ok(out)
         })?;
-        ouka.set("margeTable", marge_table)?;
+        ouka.set("margeTables", marge_tables)?;
     }
 
     // get device by name
     {
         let get_device_by_name = lua.create_function(|lua, str: mlua::String| {
             let out = lua.create_table()?;
-            device::find_device_by_name(str.to_str()?);
+            let devices = device::find_device_by_name(str.to_str()?);
+            if devices.is_none() {
+                eprintln!("The target device cannot be resolved.");
+                process::exit(1);
+            }
+            println!("=== Target device ===");
+            device::print_device_list(devices.as_deref().unwrap_or(&[]));
+            device::listen_device_list(devices.as_deref().unwrap_or(&[]));
+            Ok(out)
         })?;
         ouka.set("getDeviceByName", get_device_by_name)?;
-    }
-
-    // map(pattern, func, opts)
-    {
-        let store = store.clone();
-        let id_gen = id_gen.clone();
-        let map_fn = lua.create_function(
-            move |lua_ctx, (pat, func, opts): (String, Function, Option<Table>)| {
-                // pattern をパースして内部表現を作る（ここでは stub で文字列をそのまま保持）
-                let metadata = if let Some(tbl) = opts {
-                    // 例: opts.app
-                    match tbl.get::<_, Option<String>>("app") {
-                        Ok(v) => v,
-                        Err(_) => None,
-                    }
-                } else {
-                    None
-                };
-
-                let id = id_gen.fetch_add(1, Ordering::SeqCst);
-                let reg = lua_ctx.create_registry_value(func)?;
-                let m = Mapping {
-                    id,
-                    pattern: pat.clone(),
-                    handler: reg,
-                    metadata,
-                    created: Instant::now(),
-                };
-                store.lock().unwrap().insert(id, m);
-                Ok(id)
-            },
-        )?;
-        ouka.set("map", map_fn)?;
     }
 
     lua.globals().set("ouka", ouka)?;

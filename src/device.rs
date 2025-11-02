@@ -5,6 +5,8 @@ use std::io;
 use std::path::PathBuf;
 use std::thread;
 
+use crate::lua_api::input_types;
+
 pub struct DeviceHandler {
     device: Device,
     path: PathBuf,
