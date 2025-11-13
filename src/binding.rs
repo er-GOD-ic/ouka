@@ -1,11 +1,13 @@
 use crate::device::*;
 use crate::hotmap::*;
-use evdev::*;
+use evdev::InputEvent;
+use evdev::{EventType, KeyCode};
 use std::collections::{HashMap, HashSet};
 
 pub struct Binding {
     device: DeviceHandler,
-    keycode_table: HashMap<String, KeyCode>,
+    code_table: HashMap<String, KeyCode>,
+    value_table: HashMap<char, i32>,
     hotmap: HotMap,
 }
 
@@ -13,7 +15,8 @@ impl Binding {
     pub fn new(device: DeviceHandler) -> Self {
         Self {
             device,
-            keycode_table: HashMap::new(),
+            code_table: HashMap::new(),
+            value_table: HashMap::new(),
             hotmap: HotMap::new(),
         }
     }
@@ -24,14 +27,39 @@ impl mlua::UserData for Binding {
         methods.add_method_mut(
             "setKeycodes",
             |_, this, tables: mlua::Variadic<mlua::Table>| {
-                this.keycode_table = lua_table_to_hashmap(tables);
+                this.code_table = lua_table_to_hashmap(tables)
+                    .into_iter()
+                    .map(|(k, v)| (k, KeyCode(v as u16)))
+                    .collect();
+                Ok(())
+            },
+        );
+        methods.add_method_mut(
+            "setKeyValues",
+            |_, this, tables: mlua::Variadic<mlua::Table>| {
+                this.value_table = lua_table_to_hashmap(tables)
+                    .into_iter()
+                    .map(|(k, v)| {
+                        print!("{:?}", k);
+                        if k.len() > 1 {
+                            panic!("value key has to be 1 char:{}", k);
+                        }
+                        let c = k.chars().next();
+                        println!("{:?}", c);
+                        (c.unwrap(), v as i32)
+                    })
+                    .collect();
                 Ok(())
             },
         );
         methods.add_method_mut(
             "map",
             |lua, this, (pattern, func): (mlua::String, mlua::Function)| {
-                let key_combo: KeyCombo = parse_keycombo(pattern.to_str()?, &this.keycode_table);
+                let key_combo: KeyCombo = parse_keycombo(
+                    &pattern.to_str()?.to_string(),
+                    &this.code_table,
+                    &this.value_table,
+                );
                 let reg_func = lua.create_registry_value(func)?;
 
                 // HotMap に挿入
@@ -49,12 +77,12 @@ impl mlua::UserData for Binding {
     }
 }
 
-fn lua_table_to_hashmap(tables: mlua::Variadic<mlua::Table>) -> HashMap<String, KeyCode> {
+fn lua_table_to_hashmap(tables: mlua::Variadic<mlua::Table>) -> HashMap<String, mlua::Number> {
     let mut out = HashMap::new();
     for table in tables {
-        for pair in table.pairs::<String, u16>() {
+        for pair in table.pairs::<String, mlua::Number>() {
             if let Ok((key, value)) = pair {
-                out.insert(key, KeyCode(value));
+                out.insert(key, value);
             }
         }
     }
@@ -62,34 +90,57 @@ fn lua_table_to_hashmap(tables: mlua::Variadic<mlua::Table>) -> HashMap<String, 
 }
 
 /// 入力文字列を HashMap で解釈して KeyCombo に変換
-pub fn parse_keycombo(input: &str, table: &HashMap<String, KeyCode>) -> KeyCombo {
-    let mut keys = HashSet::new();
-    let mut remaining = input;
+pub fn parse_keycombo(
+    pattern: &String,
+    codes: &HashMap<String, KeyCode>,
+    values: &HashMap<char, i32>,
+) -> KeyCombo {
+    let mut keys: HashSet<KeyEvent> = HashSet::new();
+    let key_vec = split_pattern(pattern);
 
-    while !remaining.is_empty() {
-        let mut found = false;
-        let chars: Vec<char> = remaining.chars().collect();
-        for len in (1..=chars.len()).rev() {
-            let substr: String = chars[..len].iter().collect();
-            if let Some(&keycode) = table.get(&substr) {
-                // KeyCode から KeyEvent を生成して HashSet に追加
-                let event = crate::hotmap::KeyEvent::new(&InputEvent::new(
-                    EventType::KEY.0,
-                    keycode.code(),
-                    crate::hotmap::KEY_HELD,
-                ));
-                keys.insert(event);
+    for key in key_vec {
+        let value = get_value(&key, values);
+        let code = codes.get(&remove_value_identifier(&key, values)).expect("not found").code();
 
-                remaining = &remaining[substr.len()..];
-                found = true;
-                break;
-            }
-        }
-        if !found {
-            // 一致しない場合は 1文字消費（またはエラー扱いにする）
-            remaining = &remaining[remaining.chars().next().unwrap().len_utf8()..];
-        }
+        let input_ev = InputEvent::new(EventType::KEY.0, code, value);
+        keys.insert(KeyEvent::new(&input_ev));
     }
 
     KeyCombo::new(keys)
+}
+
+fn get_value(key: &String, values: &HashMap<char, i32>) -> i32 {
+    match values.get(&key.chars().next().unwrap()) {
+        Some(t) => t.clone(),
+        _ => {
+            let out;
+            if key.chars().last().unwrap() == '-' {
+                out = KEY_HELD;
+            } else {
+                out = KEY_DOWN;
+            }
+            out
+        }
+    }
+}
+
+fn remove_value_identifier(key: &String, values: &HashMap<char, i32>) -> String {
+    if values.get(&key.chars().next().unwrap()).is_some() {
+        key.chars().skip(1).collect()
+    } else {
+        key.clone()
+    }
+}
+
+fn split_pattern(pattern: &String) -> Vec<String> {
+    let out: Vec<String> = pattern
+        .split('+')
+        .flat_map(|chunk| {
+            chunk
+                .split_inclusive('-')
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
+        })
+        .collect();
+    out
 }

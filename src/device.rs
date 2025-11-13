@@ -20,7 +20,7 @@ impl DeviceHandler {
             let events: Vec<InputEvent> = self.device.fetch_events().unwrap().collect();
             let pressed: &AttributeSetRef<KeyCode> = self.device.cached_state().key_vals().unwrap();
             let key_combo = events_to_keycombo(events, pressed);
-            println!("combo: {:?}", key_combo);
+            // println!("combo: {:?}", key_combo);
             if let Some(reg_key) = map.get(&key_combo) {
                 // RegistryKey から Lua の関数を取得
                 let lua_func: LuaFunction = lua.registry_value(reg_key).unwrap();
@@ -32,9 +32,12 @@ impl DeviceHandler {
 
 fn events_to_keycombo(events: Vec<InputEvent>, pressed: &AttributeSetRef<KeyCode>) -> KeyCombo {
     let mut key_events: HashSet<KeyEvent> = HashSet::new();
-    let filterd_events = events.iter().filter(|ev| ev.event_type() == EventType::KEY);
+    let filterd_events: Vec<&InputEvent> = events.iter().filter(|ev| ev.event_type() == EventType::KEY).collect();
     // 押下中キーを取得
     for keycode in pressed.iter() {
+        if filterd_events.iter().any(|ev| ev.code() == keycode.code()) {
+            continue;
+        }
         key_events.insert(KeyEvent::new(&InputEvent::new(
             EventType::KEY.0,
             keycode.code(),
