@@ -6,7 +6,8 @@ edition = "2024"
 [dependencies]
 itertools = "0.13"
 bitflags = "2"
-evdev = "0.12"
+evdev = "0.13.2"
 dotenv = "0.15"
 uinput = "0.1.3"
 mlua = { version = "0.9", features = ["luajit"] }
+regex = "1.11"

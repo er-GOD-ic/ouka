@@ -1,12 +1,12 @@
 local base = require('keycode.base')
 local alias = require('keycode.alias')
 
-local keychron = ouka.getDeviceByName("keychron")
-keychron.keycode = ouka.margeTables(base, alias)
+local kbd = ouka.getDeviceById("/dev/input/by-id/kmonad-main")
+kbd:setKeycodes(base, alias)
 
---[[
-keychron.map("abc", function()
+kbd:map("a", function()
     print("hello world")
 end)
-]]
+
+kbd:listen();
 
