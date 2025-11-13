@@ -1,11 +1,9 @@
-use evdev::Device;
+use evdev::*;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::thread;
-
-use crate::lua_api::input_types;
 
 pub struct DeviceHandler {
     device: Device,
@@ -121,14 +119,11 @@ fn listen(device: &DeviceHandler) -> thread::JoinHandle<()> {
         };
 
         loop {
-            match device.fetch_events() {
-                Ok(events) => events
-                    .into_iter()
-                    .for_each(|ev| println!("event: {:?} code: {}", ev, ev.code())),
-                Err(e) => {
-                    eprintln!("error reading {}: {}", path.display(), e);
-                }
-            }
+            let events: Vec<InputEvent> = device.fetch_events().unwrap().collect();
+            let pressed: &AttributeSetRef<KeyCode> = device.cached_state().key_vals().unwrap();
+
+            println!("{:?}", events);
+            println!("{:?}", pressed.contains(KeyCode(30)));
         }
     })
 }

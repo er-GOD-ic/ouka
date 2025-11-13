@@ -1,20 +1,11 @@
 use crate::process;
-use mlua::{Function, Lua, RegistryKey, Result, Table, Value, Variadic, UserDataMethods, UserData};
+use mlua::{Function, Lua, RegistryKey, Result, Table, UserData, UserDataMethods, Value, Variadic};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
 use crate::device;
 use crate::lua_api::input_types;
-
-// load init.lua from path
-pub fn load_lua(lua: &Lua, path: &Path) {
-    let config_path = path.join("config.lua");
-    let code = fs::read_to_string(&config_path).expect("config.luaが読み込めません");
-    lua.load(&code)
-        .exec()
-        .expect("config.luaのロード時にエラーが発生しました");
-}
 
 fn merge_into(lua: &Lua, dest: &Table, src: &Table) -> Result<()> {
     for pair in src.clone().pairs::<Value, Value>() {
@@ -44,49 +35,92 @@ fn merge_into(lua: &Lua, dest: &Table, src: &Table) -> Result<()> {
     Ok(())
 }
 
+fn merge_tables<'lua>(lua: &'lua Lua, a: Table<'lua>, b: Table<'lua>) -> Result<Table<'lua>> {
+    let result = lua.create_table()?;
+
+    // copy a into result
+    a.clone().pairs::<Value, Value>().try_for_each(|pair| {
+        let (k, v) = pair?;
+        result.set(k, v)
+    })?;
+
+    // fold b over result, recursively merging sub-tables
+    b.clone()
+        .pairs::<Value, Value>()
+        .try_fold(result, |acc, pair| {
+            let (k, v) = pair?;
+            match v {
+                Value::Table(v_table) => {
+                    let merged = match acc.get::<_, Value>(k.clone())? {
+                        Value::Table(acc_sub) => merge_tables(lua, acc_sub, v_table)?,
+                        _ => merge_tables(lua, lua.create_table()?, v_table)?,
+                    };
+                    acc.set(k, merged)?;
+                    Ok(acc)
+                }
+                other => {
+                    acc.set(k, other)?;
+                    Ok(acc)
+                }
+            }
+        })
+}
+
 struct DeviceData {
-    name: String,
-    keymap: HashMap<input_types::Token, RegistryKey>,
+    device: Option<Vec<device::DeviceHandler>>,
+    keycodes: Option<RegistryKey>,
+    keymap: HashMap<input_types::Hotkey, RegistryKey>,
 }
 
 impl UserData for DeviceData {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_method("map", |lua, this, (key, func): (mlua::String, Function)| {
-            // FunctionをRegistryに保存
-            let key_ref = lua.create_registry_value(func)?;
+        methods.add_method_mut("setKeycodes", |lua, this, tables: Variadic<Table>| {
+            let keycode_table = lua.create_table()?;
+            for table in tables {
+                merge_into(lua, &keycode_table, &table)?;
+            }
+
+            this.keycodes = Some(lua.create_registry_value(keycode_table)?);
             Ok(())
         });
+        methods.add_method("listen", |_, this, ()| {
+            device::listen_device_list(this.device.as_deref().unwrap_or(&[]));
+            Ok(())
+        });
+        methods.add_method_mut(
+            "map",
+            |lua, this, (pattern, func): (mlua::String, Function)| {
+                if let Some(ref keycodes) = this.keycodes {
+                    this.keymap.insert(
+                        input_types::parse_hotkey(lua, keycodes, pattern.to_str().unwrap()),
+                        lua.create_registry_value(func)
+                            .expect("cannot create registry value"),
+                    );
+                }
+                Ok(())
+            },
+        );
     }
 }
 
 // functions
 pub fn register_api(lua: &Lua) -> Result<()> {
     let ouka = lua.create_table()?;
-
-    // define map
-    {
-        let marge_tables = lua.create_function(|lua, tables: Variadic<Table>| {
-            let out = lua.create_table()?;
-            for table in tables {
-                merge_into(lua, &out, &table)?;
-            }
-            Ok(out)
-        })?;
-        ouka.set("margeTables", marge_tables)?;
-    }
-
     // get device by name
     {
         let get_device_by_name = lua.create_function(|lua, str: mlua::String| {
-            let out = lua.create_table()?;
-            let devices = device::find_device_by_name(str.to_str()?);
-            if devices.is_none() {
+            let device = device::find_device_by_name(str.to_str()?);
+            if device.is_none() {
                 eprintln!("The target device cannot be resolved.");
                 process::exit(1);
             }
             println!("=== Target device ===");
-            device::print_device_list(devices.as_deref().unwrap_or(&[]));
-            device::listen_device_list(devices.as_deref().unwrap_or(&[]));
+            device::print_device_list(device.as_deref().unwrap_or(&[]));
+            let out = DeviceData {
+                device: device,
+                keycodes: None,
+                keymap: HashMap::new(),
+            };
             Ok(out)
         })?;
         ouka.set("getDeviceByName", get_device_by_name)?;
