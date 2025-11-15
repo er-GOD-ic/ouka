@@ -6,6 +6,7 @@ use std::path::Path;
 
 mod binding;
 mod device;
+mod virtual_device;
 mod hotmap;
 mod lua_function;
 

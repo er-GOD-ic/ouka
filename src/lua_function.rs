@@ -14,7 +14,13 @@ pub fn register_api(lua: &Lua) -> Result<()> {
         })?;
         ouka.set("getDeviceById", get_device_by_id)?;
     }
-
+    // kill process
+    {
+        let kill = lua.create_function(|_, ()| -> Result<()> {
+            std::process::exit(0);
+        })?;
+        ouka.set("kill", kill)?;
+    }
     lua.globals().set("ouka", ouka)?;
     Ok(())
 }

@@ -21,8 +21,12 @@ impl KeyEvent {
         }
     }
 
-    fn code(&self) -> u16 {
-        self.code.code()
+    pub fn code(&self) -> &KeyCode {
+        &self.code
+    }
+
+    pub fn value(&self) -> i32 {
+        self.value
     }
 }
 
@@ -41,6 +45,10 @@ pub struct KeyCombo {
 impl KeyCombo {
     pub fn new(keys: HashSet<KeyEvent>) -> Self {
         Self{ keys }
+    }
+
+    pub fn keys(&self) -> &HashSet<KeyEvent> {
+        &self.keys
     }
 }
 
